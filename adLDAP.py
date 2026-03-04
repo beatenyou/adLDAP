@@ -563,9 +563,12 @@ Examples:
     def _create_output_dir(self):
         """Create the domain output directory and start teeing console output to a log file."""
         try:
+            # Append timestamp so the folder is e.g. domain.local_2026-03-04_1430
+            ts_suffix = self.t1.strftime("_%Y-%m-%d_%H%M") if self.t1 else ""
+            self.dir_name = f"{self.dir_name}{ts_suffix}"
             os.makedirs(self.dir_name, exist_ok=True)
             # Open a master log file and tee all subsequent print() output into it
-            log_path = os.path.join(self.dir_name, f'{self.dir_name}.console.log')
+            log_path = os.path.join(self.dir_name, f'{self.domain}.console.log')
             self._log_fh = open(log_path, 'w', encoding='utf-8')
             sys.stdout = _TeeWriter(sys.__stdout__, self._log_fh)
             sys.stderr = _TeeWriter(sys.__stderr__, self._log_fh)
