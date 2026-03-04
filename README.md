@@ -2,7 +2,7 @@
 
 adLDAP is an Active Directory LDAP enumeration tool implemented in Python3. It provides comprehensive domain reconnaissance, user and group enumeration, delegation analysis, DACL inspection, and a full suite of vulnerability and security checks including ADCS certificate template abuse (ESC1-ESC15).
 
-The tool wraps the `ldap3` library for LDAP communication and `impacket` for binary security descriptor parsing. It is optimized for use on Windows but is functional on Linux with some features limited (e.g., hostname-to-IP resolution).
+The tool wraps the `ldap3` library for LDAP communication and `impacket` for binary security descriptor parsing. It is cross-platform -- optimized for Windows with full functionality on Linux (hostname-to-IP resolution is Windows-only).
 
 ## Installation
 
@@ -38,7 +38,7 @@ python3 adLDAP.py --dc <DC_IP> --user <username> --ntlm <hash>
 
 ### Force Port 389
 
-Force an unencrypted LDAP connection on port 389 instead of LDAPS.
+Force an unencrypted LDAP connection on port 389 instead of LDAPS. Useful when the DC does not have LDAPS configured.
 
 ```
 python3 adLDAP.py --dc <DC_IP> --user <username> --password <password> --no-ssl
@@ -48,24 +48,25 @@ python3 adLDAP.py --dc <DC_IP> --user <username> --password <password> --no-ssl
 
 When run without targeted flags, adLDAP performs a full domain enumeration including:
 
-- Current user information and group memberships
-- Password policy and machine account quota
-- Group Managed Service Accounts (gMSA) with password hashes
-- LAPS passwords (if readable)
-- All domain users and users with non-expiring passwords
-- Domain groups
-- Admin-level users (admin and operator groups)
-- Kerberoastable accounts
-- AS-REP roastable accounts
-- Unconstrained and constrained delegations
-- All domain computers with hostname resolution (Windows)
-- Domain controllers
-- Domain trusts and trust direction
-- Servers and deprecated operating systems
-- MSSQL and Exchange servers
-- Group Policy Objects
-- Protected admin users (adminCount=1)
-- User descriptions containing interesting fields (passwords, keys, etc.)
+- **Current user information** -- UAC flag decoding, adminCount status, and transitive privileged group membership via LDAP (cross-platform, no `whoami` dependency)
+- **Password policy** -- complexity requirements, lockout thresholds, fine-grained password policies, and machine account quota
+- **Group Managed Service Accounts (gMSA)** -- account enumeration with full password hash extraction (NTLM, AES256, AES128) and readable-by principals
+- **LAPS passwords** (if readable by the authenticated user)
+- **All domain users** and **users with non-expiring passwords**
+- **Stale accounts** -- disabled accounts, locked-out accounts, and accounts that have never logged on
+- **Domain groups with member listing** -- each group displays its member count and member names (CN extracted from DN)
+- **Admin-level users** -- members of admin and operator groups (console output capped at 25 per group, full list in file)
+- **Kerberoastable accounts** -- users with SPNs that are not disabled
+- **AS-REP roastable accounts** -- users with Kerberos pre-authentication disabled
+- **Unconstrained and constrained delegations** -- accounts trusted for delegation and their allowed targets
+- **All domain computers** with hostname resolution (Windows)
+- **Domain controllers**
+- **Domain trusts** with trust direction and trust type
+- **Servers and deprecated operating systems** -- Windows 2003, XP, Vista, 7, 8, 2008
+- **MSSQL and Exchange servers**
+- **Group Policy Objects**
+- **Protected admin users** (adminCount=1)
+- **User descriptions** containing interesting fields (passwords, keys, tokens, etc.)
 
 All results are written to individual text files in a timestamped output directory. A full console log is also captured automatically.
 
@@ -88,11 +89,27 @@ python3 adLDAP.py --dc <DC_IP> --user <username> --password <password> --rbcd --
 
 | Flag | Description |
 |------|-------------|
-| `--group-members` | Enumerate all group memberships with member resolution |
-| `--rbcd` | Enumerate Resource Based Constrained Delegation configurations |
+| `--group-members` | Enumerate all group memberships with member resolution and object type tagging (User, Group, Computer, gMSA) |
+| `--rbcd` | Enumerate Resource Based Constrained Delegation configurations with ACL member resolution |
 | `--dacl` | Enumerate dangerous DACL ACEs for all users, computers, and groups |
 | `--dacl <name>` | Target a specific object by sAMAccountName |
 | `--dacl-type <type>` | Restrict DACL scope to `user`, `computer`, or `group` |
+
+### DACL Rights Detected
+
+The DACL check identifies the following dangerous permissions on Active Directory objects:
+
+- **GenericAll** -- full control over the object
+- **GenericWrite** -- write any attribute on the object
+- **WriteOwner** -- change the object owner
+- **WriteDACL** -- modify the object DACL
+- **WriteProperty(All)** -- write all properties
+- **ForceChangePassword** -- reset the target user password without knowing the current one
+- **AddMember / AddSelf** -- add members to a group
+- **WriteSPN** -- modify the servicePrincipalName attribute (Kerberoasting path)
+- **WriteRBCD** -- write the msDS-AllowedToActOnBehalfOfOtherIdentity attribute (RBCD abuse path)
+
+Default and privileged trustees (Domain Admins, Enterprise Admins, SYSTEM, etc.) are filtered out to reduce noise.
 
 ## Vulnerability & Security Checks
 
@@ -101,11 +118,11 @@ Run all checks at once with `--vuln-scan`, or select individual checks:
 | Flag | Description |
 |------|-------------|
 | `--vuln-scan` | Run ALL vulnerability checks in one pass |
-| `--adminsdholder` | Inspect AdminSDHolder ACL for unexpected write permissions |
+| `--adminsdholder` | Inspect AdminSDHolder ACL for unexpected write permissions (SDProp persistence) |
 | `--sid-history` | Detect accounts carrying privileged SIDs in sIDHistory |
 | `--shadow-creds` | Enumerate msDS-KeyCredentialLink entries (Shadow Credentials) |
 | `--foreign-principals` | Find Foreign Security Principals in privileged groups |
-| `--dangerous-delegation` | Find constrained delegation on sensitive DC services |
+| `--dangerous-delegation` | Find constrained delegation on sensitive DC services (ldap, cifs, host, gc) |
 | `--rbcd-domain` | Check RBCD on the domain object and DC computer objects |
 | `--indirect-admins` | Find transitive (nested) members of privileged groups |
 | `--dcsync` | Find non-privileged principals with DCSync replication rights |
@@ -139,6 +156,8 @@ All output is written to a timestamped directory (e.g., `domain.local_2026-03-04
 - Individual `.txt` files for each enumeration category
 - A `.console.log` file capturing all terminal output (with ANSI colors stripped)
 - A summary at the end of execution listing all generated files and sizes
+
+Each output file includes a header with the domain name and run timestamp for easy identification.
 
 ## Disclaimer
 
