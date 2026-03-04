@@ -70,6 +70,7 @@ _ACE_DS_SELF            = 0x00000008
 _GUID_FORCE_CHANGE_PW   = '00299570-246d-11d0-a768-00aa006e0529'
 _GUID_MEMBER_ATTR       = 'bf9679c0-0de6-11d0-a285-00aa003049e2'
 _GUID_SPN_ATTR          = 'f3a64788-5306-11d1-a9c5-0000f80367c1'
+_GUID_RBCD_ATTR         = '3f78c3e5-f79a-46bd-a0b8-9d18116ddc79'  # msDS-AllowedToActOnBehalfOfOtherIdentity
 
 # DCSync replication right GUIDs
 _GUID_REPL_GET_CHANGES     = '1131f6aa-9c07-11d1-f79f-00c04fc2dcd2'
@@ -255,8 +256,8 @@ class LDAPSearch:
         print(r'  / __ `/ __  / /   / / / / / /| | / /_/ /')
         print(r' / /_/ / /_/ / /___/ /_/ / / ___ |/ ____/ ')
         print( ' \\__,_/\\__,_/_____/_____/ /_/  |_/_/      ')
-        print('          AD LDAP Enum v1.2 Release')
-        print("                 Beatenyou \n" + Style.RESET_ALL)
+        print('        AD LDAP Enum v0.2 Release')
+        print("              Beatenyou \n" + Style.RESET_ALL)
 
     def arg_handler(self):
         parser = argparse.ArgumentParser(
@@ -273,7 +274,7 @@ Examples:
   DACL (all):              python3 adLDAP.py --dc 192.168.1.79 --user testuser --password Password123! --dacl
   DACL (one object):       python3 adLDAP.py --dc 192.168.1.79 --user testuser --password Password123! --dacl K2ROOTDC$
   DACL (one user):         python3 adLDAP.py --dc 192.168.1.79 --user testuser --password Password123! --dacl jdoe --dacl-type user
-  ── Vulnerability / Security Checks ──────────────────────────────────────────
+  ────── Vulnerability / Security Checks ──────
   Run ALL vuln checks:     python3 adLDAP.py --dc 192.168.1.79 --user testuser --password Password123! --vuln-scan
   AdminSDHolder ACL:       python3 adLDAP.py --dc 192.168.1.79 --user testuser --password Password123! --adminsdholder
   SID History Abuse:       python3 adLDAP.py --dc 192.168.1.79 --user testuser --password Password123! --sid-history
@@ -706,6 +707,7 @@ Examples:
             self.laps()
             self.search_users()
             self.search_pass_expire()
+            self.search_stale_accounts()
             self.search_groups()
             self.admin_accounts()
             self.kerberoast_accounts()
@@ -861,7 +863,6 @@ Examples:
         print_info(summary)
 
     def domain_recon(self):
-        print_info("\n[info] Let's dump some domain information quick.")
         print_info('\n' + '-'*31 + 'Domain Enumeration' + '-'*31)
         self.conn.search(
             f'{self.dom_1}', f'(sAMAccountName={self.username})', attributes=ldap3.ALL_ATTRIBUTES)
@@ -903,6 +904,78 @@ Examples:
                 f"  Min Password Len  : {entries.minPwdLength}",
                 f"  Complexity        : {pass_complexity}",
             ]
+            # ── LDAP-based user privilege enumeration ─────────────────
+            try:
+                self.conn.search(
+                    f'{self.dom_1}',
+                    f'(sAMAccountName={self.username})',
+                    attributes=['userAccountControl', 'adminCount',
+                                'memberOf', 'objectSid'])
+                if self.conn.entries:
+                    u = self.conn.entries[0]
+
+                    # Decode UserAccountControl flags
+                    uac = int(str(u.userAccountControl)) if u.userAccountControl else 0
+                    _UAC_FLAGS = {
+                        0x0002:    'ACCOUNTDISABLE',
+                        0x0010:    'LOCKOUT',
+                        0x0020:    'PASSWD_NOTREQD',
+                        0x0080:    'ENCRYPTED_TEXT_PWD_ALLOWED',
+                        0x0200:    'NORMAL_ACCOUNT',
+                        0x10000:   'DONT_EXPIRE_PASSWORD',
+                        0x40000:   'SMARTCARD_REQUIRED',
+                        0x80000:   'TRUSTED_FOR_DELEGATION',
+                        0x100000:  'NOT_DELEGATED',
+                        0x200000:  'USE_DES_KEY_ONLY',
+                        0x400000:  'DONT_REQ_PREAUTH',
+                        0x800000:  'PASSWORD_EXPIRED',
+                        0x1000000: 'TRUSTED_TO_AUTH_FOR_DELEGATION',
+                    }
+                    active_flags = [name for bit, name in _UAC_FLAGS.items() if uac & bit]
+                    recon_lines.append('')
+                    recon_lines.append('Current User Account Flags')
+                    recon_lines.append(f'  UAC Value         : {uac}')
+                    recon_lines.append(f'  Flags             : {", ".join(active_flags) if active_flags else "(none)"}')
+
+                    # adminCount
+                    admin_count = str(u.adminCount) if u.adminCount else '0'
+                    recon_lines.append(f'  adminCount        : {admin_count}')
+
+                    # Check privileged group membership via LDAP_MATCHING_RULE_IN_CHAIN (transitive)
+                    _PRIV_GROUPS = [
+                        'Domain Admins', 'Enterprise Admins', 'Schema Admins',
+                        'Administrators', 'Account Operators', 'Server Operators',
+                        'Backup Operators', 'Print Operators', 'DnsAdmins',
+                        'Group Policy Creator Owners', 'Protected Users',
+                    ]
+                    priv_hits = []
+                    for pg in _PRIV_GROUPS:
+                        try:
+                            # 1.2.840.113556.1.4.1941 = LDAP_MATCHING_RULE_IN_CHAIN (recursive)
+                            self.conn.search(
+                                f'{self.dom_1}',
+                                f'(&(sAMAccountName={self.username})(memberOf:1.2.840.113556.1.4.1941:=CN={pg},CN=Users,{self.long_dc}))',
+                                attributes=['sAMAccountName'])
+                            if not self.conn.entries:
+                                # Also check Builtin container
+                                self.conn.search(
+                                    f'{self.dom_1}',
+                                    f'(&(sAMAccountName={self.username})(memberOf:1.2.840.113556.1.4.1941:=CN={pg},CN=Builtin,{self.long_dc}))',
+                                    attributes=['sAMAccountName'])
+                            if self.conn.entries:
+                                priv_hits.append(pg)
+                        except Exception:
+                            pass
+                    recon_lines.append('')
+                    recon_lines.append('Privileged Group Membership (transitive)')
+                    if priv_hits:
+                        for pg in priv_hits:
+                            recon_lines.append(f'  [!] {pg}')
+                    else:
+                        recon_lines.append('  (none detected)')
+            except Exception:
+                pass
+
             for ln in recon_lines:
                 print_success(ln)
             # Save to file
@@ -1018,19 +1091,96 @@ Examples:
         except Exception:
             pass
 
+    def search_stale_accounts(self):
+        # ── Disabled Accounts ──
+        print_info('\n' + '-'*30 + 'Disabled User Accounts' + '-'*28 + '\n')
+        self.conn.search(
+            f'{self.dom_1}',
+            '(&(objectClass=user)(objectCategory=Person)(userAccountControl:1.2.840.113556.1.4.803:=2))',
+            attributes=['sAMAccountName'])
+        disabled = [str(e.sAMAccountName) for e in self.conn.entries]
+        if disabled:
+            for name in disabled:
+                print_success(name)
+        else:
+            print_info('  (none found)')
+
+        # ── Locked-Out Accounts ──
+        print_info('\n' + '-'*30 + 'Locked-Out User Accounts' + '-'*26 + '\n')
+        self.conn.search(
+            f'{self.dom_1}',
+            '(&(objectClass=user)(objectCategory=Person)(lockoutTime>=1))',
+            attributes=['sAMAccountName', 'lockoutTime'])
+        locked = []
+        for e in self.conn.entries:
+            lt = str(e.lockoutTime)
+            # lockoutTime of 0 means not locked
+            if lt and lt != '0' and lt != '1601-01-01 00:00:00+00:00':
+                locked.append(str(e.sAMAccountName))
+        if locked:
+            for name in locked:
+                print_success(name)
+        else:
+            print_info('  (none found)')
+
+        # ── Never-Logged-On Accounts ──
+        print_info('\n' + '-'*27 + 'Users That Have Never Logged On' + '-'*22 + '\n')
+        self.conn.search(
+            f'{self.dom_1}',
+            '(&(objectClass=user)(objectCategory=Person)(!(lastLogonTimestamp=*)))',
+            attributes=['sAMAccountName'])
+        never_logon = [str(e.sAMAccountName) for e in self.conn.entries]
+        if never_logon:
+            for name in never_logon:
+                print_success(name)
+        else:
+            print_info('  (none found)')
+
+        # Save all to file
+        out_path = os.path.join(self.dir_name, f'{self.domain}.stale_accounts.txt')
+        if os.path.exists(out_path):
+            os.remove(out_path)
+        with open(out_path, 'w') as f:
+            f.write(f"# adLDAP  |  {self.domain}  |  {self.run_ts}\n# {'─'*60}\n")
+            f.write(f"Disabled Accounts ({len(disabled)})\n")
+            f.write('\n'.join(f'  {n}' for n in disabled) + '\n' if disabled else '  (none found)\n')
+            f.write(f"\nLocked-Out Accounts ({len(locked)})\n")
+            f.write('\n'.join(f'  {n}' for n in locked) + '\n' if locked else '  (none found)\n')
+            f.write(f"\nNever-Logged-On Accounts ({len(never_logon)})\n")
+            f.write('\n'.join(f'  {n}' for n in never_logon) + '\n' if never_logon else '  (none found)\n')
+
     def search_groups(self):
         self.conn.search(f'{self.dom_1}', '(objectclass=group)',
-                         attributes=ldap3.ALL_ATTRIBUTES)
-        entries_val = self.conn.entries
+                         attributes=['sAMAccountName', 'member'])
+        groups = list(self.conn.entries)
         print_info('\n' + '-'*37 + 'Groups' + '-'*37 + '\n')
-        entries_val = str(entries_val)
-        for group in self.conn.entries:
-            print_success(group.sAMAccountName)
-        if os.path.exists(os.path.join(self.dir_name, f'{self.domain}.groups.txt')):
-            os.remove(os.path.join(self.dir_name, f'{self.domain}.groups.txt'))
-        with open(os.path.join(self.dir_name, f'{self.domain}.groups.txt'), 'w') as f:
+        out_lines = []
+        for group in groups:
+            group_name = str(group.sAMAccountName)
+            raw_members = group['member'].values if group['member'] else []
+            member_count = len(raw_members)
+            header = f"[Group] {group_name}  ({member_count} member(s))"
+            print_success(header)
+            out_lines.append(header)
+            if raw_members:
+                for member_dn in raw_members:
+                    # Extract the CN from the DN for a clean display
+                    cn = str(member_dn)
+                    if cn.upper().startswith('CN='):
+                        cn = cn[3:].split(',')[0]
+                    line = f"  - {cn}"
+                    print_info(line)
+                    out_lines.append(line)
+            else:
+                line = "  (no members)"
+                print_info(line)
+                out_lines.append(line)
+        out_path = os.path.join(self.dir_name, f'{self.domain}.groups.txt')
+        if os.path.exists(out_path):
+            os.remove(out_path)
+        with open(out_path, 'w') as f:
             f.write(f"# adLDAP  |  {self.domain}  |  {self.run_ts}\n# {'─'*60}\n")
-            f.write(entries_val)
+            f.write('\n'.join(out_lines) + '\n')
 
 
     def admin_accounts(self):
@@ -1606,6 +1756,8 @@ Examples:
                                 rights.append('AddSelf(member)')
                             elif mask & _ACE_DS_WRITE_PROP and guid_lc == _GUID_SPN_ATTR:
                                 rights.append('WriteSPN(servicePrincipalName)')
+                            elif mask & _ACE_DS_WRITE_PROP and guid_lc == _GUID_RBCD_ATTR:
+                                rights.append('WriteRBCD(msDS-AllowedToActOnBehalfOfOtherIdentity)')
                             elif mask & _ACE_GENERIC_ALL:
                                 rights.append(f'GenericAll(ObjectType:{guid})')
                             elif mask & _ACE_GENERIC_WRITE:
