@@ -161,7 +161,7 @@ Each output file includes a header with the domain name and run timestamp for ea
 
 ## Disclaimer
 
-This tool is designed for authorized penetration testing and security assessments only. Usage of adLDAP for attacking targets without prior mutual consent is illegal. It is the end user's responsibility to obey all applicable local, state, and federal laws. The developer assumes no liability and is not responsible for any misuse or damage caused by this tool.
+This tool is designed for authorized security assessments only. Usage of adLDAP for attacking targets without prior mutual consent is illegal. It is the end user's responsibility to obey all applicable local, state, and federal laws. The developer assumes no liability and is not responsible for any misuse or damage caused by this tool.
 
 ## Credits
 
