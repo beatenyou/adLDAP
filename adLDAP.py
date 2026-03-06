@@ -1314,6 +1314,13 @@ Examples:
                 print_success(f"{kerb_users.sAMAccountName}  ({upn})")
             else:
                 print_success(kerb_users.sAMAccountName)
+            try:
+                spns = kerb_users.servicePrincipalName.values
+                if spns:
+                    for spn in spns:
+                        print(f"  {spn}")
+            except Exception:
+                pass
         if os.path.exists(os.path.join(self.dir_name, f'{self.domain}.kerberoast.txt')):
             os.remove(os.path.join(self.dir_name, f'{self.domain}.kerberoast.txt'))
         with open(os.path.join(self.dir_name, f'{self.domain}.kerberoast.txt'), 'w') as f:
@@ -1323,7 +1330,7 @@ Examples:
 
     def aspreproast_accounts(self):
         self.conn.search(f'{self.dom_1}', '(&(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=4194304)(!(UserAccountControl:1.2.840.113556.1.4.803:=2)))', attributes=[
-            'sAMAccountName', 'userPrincipalName'])
+            'sAMAccountName', 'userPrincipalName', 'servicePrincipalName'])
         entries_val = self.conn.entries
         print_info('\n' + '-'*30 + 'ASREPRoastable Users' + '-'*30 + '\n')
         entries_val = str(entries_val)
@@ -1337,6 +1344,13 @@ Examples:
                 print_success(f"{asrep_users.sAMAccountName}  ({upn})")
             else:
                 print_success(asrep_users.sAMAccountName)
+            try:
+                spns = asrep_users.servicePrincipalName.values
+                if spns:
+                    for spn in spns:
+                        print(f"  {spn}")
+            except Exception:
+                pass
         if os.path.exists(os.path.join(self.dir_name, f'{self.domain}.asreproast.txt')):
             os.remove(os.path.join(self.dir_name, f'{self.domain}.asreproast.txt'))
         with open(os.path.join(self.dir_name, f'{self.domain}.asreproast.txt'), 'w') as f:
