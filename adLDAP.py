@@ -708,6 +708,7 @@ Examples:
             self.search_users()
             self.search_pass_expire()
             self.search_stale_accounts()
+            self.admin_count_search()
             self.search_groups()
             self.admin_accounts()
             self.kerberoast_accounts()
@@ -722,7 +723,6 @@ Examples:
             self.mssql_search()
             self.exchange_search()
             self.gpo_search()
-            self.admin_count_search()
             self.find_fields()
         if self.group_members:
             self.enumerate_group_members()
@@ -892,9 +892,21 @@ Examples:
                 pass_complexity = "Enabled"
             elif entries.pwdProperties == 0:
                 pass_complexity = "Disabled"
+            _FUNC_LEVELS = {
+                '0': 'Windows 2000', '1': 'Windows 2003 Interim',
+                '2': 'Windows 2003', '3': 'Windows 2008',
+                '4': 'Windows 2008 R2', '5': 'Windows 2012',
+                '6': 'Windows 2012 R2', '7': 'Windows 2016',
+            }
+            try:
+                fl_raw = self.conn.server.info.other.get('domainFunctionality', [''])[0]
+                func_level = _FUNC_LEVELS.get(str(fl_raw), str(fl_raw))
+            except Exception:
+                func_level = 'Unknown'
             recon_lines = [
                 f"Domain SID          : {entries.objectSid}",
                 f"Domain Created      : {entries.CreationTime}",
+                f"Functional Level    : {func_level}",
                 f"Machine Acct Quota  : {quota_val}",
                 "",
                 "Password Policy",
@@ -902,6 +914,7 @@ Examples:
                 f"  Lockout Duration  : {entries.lockoutDuration}",
                 f"  Max Password Age  : {entries.maxPwdAge}",
                 f"  Min Password Len  : {entries.minPwdLength}",
+                f"  Password History  : {entries.pwdHistoryLength}",
                 f"  Complexity        : {pass_complexity}",
             ]
             # ── LDAP-based user privilege enumeration ─────────────────
@@ -1078,6 +1091,14 @@ Examples:
                     print_success(f"{users.sAMAccountName}  ({upn})")
                 else:
                     print_success(users.sAMAccountName)
+                try:
+                    uac = int(str(users.userAccountControl))
+                    if uac & 0x40000:
+                        print_info("  [!] Smart card required for interactive logon")
+                    if uac & 0x0080:
+                        print_error("  [!] Password stored using reversible encryption")
+                except Exception:
+                    pass
             except Exception:
                 pass
 
@@ -1328,23 +1349,37 @@ Examples:
                          attributes=ldap3.ALL_ATTRIBUTES)
         entries = list(self.conn.entries)
         print_info('\n' + '-'*28 + 'Unconstrained Delegations' + '-'*27 + '\n')
+        out_lines = []
         for i, entry in enumerate(entries):
-            upn = ''
+            sam = str(entry.sAMAccountName)
+            # Determine account type
+            obj_classes = [str(c).lower() for c in (entry.objectClass.values if entry.objectClass else [])]
+            if 'computer' in obj_classes:
+                acct_type = 'Computer'
+            elif 'msds-managedserviceaccount' in obj_classes or 'msds-groupmanagedserviceaccount' in obj_classes:
+                acct_type = 'gMSA'
+            else:
+                acct_type = 'User'
+            print_success(f"{sam}")
+            print(f"  Account Type      : {acct_type}")
+            print(f"  DelegationRightsTo: Any Service (Unconstrained)")
+            out_lines.append(f"{sam}  |  Type: {acct_type}  |  DelegationRightsTo: Any Service (Unconstrained)")
             try:
-                upn = str(entry.userPrincipalName) if entry.userPrincipalName else ''
+                spns = entry.servicePrincipalName.values
+                if spns:
+                    print(f"  SPNs              :")
+                    for spn in spns:
+                        print(f"    {spn}")
             except Exception:
                 pass
-            if upn and upn != '[]':
-                print_success(f"{entry.sAMAccountName}  ({upn})")
-            else:
-                print_success(entry.sAMAccountName)
+            print()
             if i >= 24:
-                print_info(f'\n[info] Truncating results at 25. Check {self.domain}.unconstrained.txt for full details.')
+                print_info(f'[info] Truncating results at 25. Check {self.domain}.unconstrained.txt for full details.')
                 break
         out_path = os.path.join(self.dir_name, f'{self.domain}.unconstrained.txt')
         with open(out_path, 'w') as f:
             f.write(f"# adLDAP  |  {self.domain}  |  {self.run_ts}\n# {'─'*60}\n")
-            f.write(str(entries))
+            f.write('\n'.join(out_lines) + '\n' if out_lines else '(none found)\n')
 
 
     def constrainted_search(self):
@@ -1352,21 +1387,39 @@ Examples:
                          attributes=ldap3.ALL_ATTRIBUTES)
         entries = list(self.conn.entries)
         print_info('\n' + '-'*29 + 'Constrained Delegations' + '-'*28 + '\n')
-        con_val = 0
-        for entry in entries:
+        out_lines = []
+        for i, entry in enumerate(entries):
+            sam = str(entry.sAMAccountName)
+            # Determine account type
+            obj_classes = [str(c).lower() for c in (entry.objectClass.values if entry.objectClass else [])]
+            if 'computer' in obj_classes:
+                acct_type = 'Computer'
+            elif 'msds-managedserviceaccount' in obj_classes or 'msds-groupmanagedserviceaccount' in obj_classes:
+                acct_type = 'gMSA'
+            else:
+                acct_type = 'User'
             targets = entry['msDS-AllowedToDelegateTo'].values if entry['msDS-AllowedToDelegateTo'] else []
+            print_success(f"{sam}")
+            print(f"  Account Type      : {acct_type}")
             for tgt in targets:
-                print_success(f'{entry.cn} has constrained delegation rights to {tgt}')
-                con_val += 1
-                if con_val >= 25:
-                    print_info(f'\n[info] Truncating results at 25. Check {self.domain}.constrained.txt for full details.')
-                    break
-            if con_val >= 25:
+                print(f"  DelegationRightsTo: {tgt}")
+            out_lines.append(f"{sam}  |  Type: {acct_type}  |  DelegationRightsTo: {', '.join(str(t) for t in targets)}")
+            try:
+                spns = entry.servicePrincipalName.values
+                if spns:
+                    print(f"  SPNs              :")
+                    for spn in spns:
+                        print(f"    {spn}")
+            except Exception:
+                pass
+            print()
+            if i >= 24:
+                print_info(f'[info] Truncating results at 25. Check {self.domain}.constrained.txt for full details.')
                 break
         out_path = os.path.join(self.dir_name, f'{self.domain}.constrained.txt')
         with open(out_path, 'w') as f:
             f.write(f"# adLDAP  |  {self.domain}  |  {self.run_ts}\n# {'─'*60}\n")
-            f.write(str(entries))
+            f.write('\n'.join(out_lines) + '\n' if out_lines else '(none found)\n')
 
 
     def computer_search(self):
