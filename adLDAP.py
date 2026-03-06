@@ -1069,7 +1069,15 @@ Examples:
 
         for users in self.conn.entries:
             try:
-                print_success(users.sAMAccountName)
+                upn = ''
+                try:
+                    upn = str(users.userPrincipalName) if users.userPrincipalName else ''
+                except Exception:
+                    pass
+                if upn and upn != '[]':
+                    print_success(f"{users.sAMAccountName}  ({upn})")
+                else:
+                    print_success(users.sAMAccountName)
             except Exception:
                 pass
 
@@ -1087,7 +1095,15 @@ Examples:
 
         try:
             for users in self.conn.entries:
-                print_success(users.sAMAccountName)
+                upn = ''
+                try:
+                    upn = str(users.userPrincipalName) if users.userPrincipalName else ''
+                except Exception:
+                    pass
+                if upn and upn != '[]':
+                    print_success(f"{users.sAMAccountName}  ({upn})")
+                else:
+                    print_success(users.sAMAccountName)
         except Exception:
             pass
 
@@ -1097,11 +1113,22 @@ Examples:
         self.conn.search(
             f'{self.dom_1}',
             '(&(objectClass=user)(objectCategory=Person)(userAccountControl:1.2.840.113556.1.4.803:=2))',
-            attributes=['sAMAccountName'])
-        disabled = [str(e.sAMAccountName) for e in self.conn.entries]
+            attributes=['sAMAccountName', 'userPrincipalName'])
+        disabled = []
+        for e in self.conn.entries:
+            sam = str(e.sAMAccountName)
+            upn = ''
+            try:
+                upn = str(e.userPrincipalName) if e.userPrincipalName else ''
+            except Exception:
+                pass
+            disabled.append((sam, upn if upn and upn != '[]' else ''))
         if disabled:
-            for name in disabled:
-                print_success(name)
+            for sam, upn in disabled:
+                if upn:
+                    print_success(f"{sam}  ({upn})")
+                else:
+                    print_success(sam)
         else:
             print_info('  (none found)')
 
@@ -1110,16 +1137,25 @@ Examples:
         self.conn.search(
             f'{self.dom_1}',
             '(&(objectClass=user)(objectCategory=Person)(lockoutTime>=1))',
-            attributes=['sAMAccountName', 'lockoutTime'])
+            attributes=['sAMAccountName', 'lockoutTime', 'userPrincipalName'])
         locked = []
         for e in self.conn.entries:
             lt = str(e.lockoutTime)
             # lockoutTime of 0 means not locked
             if lt and lt != '0' and lt != '1601-01-01 00:00:00+00:00':
-                locked.append(str(e.sAMAccountName))
+                sam = str(e.sAMAccountName)
+                upn = ''
+                try:
+                    upn = str(e.userPrincipalName) if e.userPrincipalName else ''
+                except Exception:
+                    pass
+                locked.append((sam, upn if upn and upn != '[]' else ''))
         if locked:
-            for name in locked:
-                print_success(name)
+            for sam, upn in locked:
+                if upn:
+                    print_success(f"{sam}  ({upn})")
+                else:
+                    print_success(sam)
         else:
             print_info('  (none found)')
 
@@ -1128,11 +1164,22 @@ Examples:
         self.conn.search(
             f'{self.dom_1}',
             '(&(objectClass=user)(objectCategory=Person)(!(lastLogonTimestamp=*)))',
-            attributes=['sAMAccountName'])
-        never_logon = [str(e.sAMAccountName) for e in self.conn.entries]
+            attributes=['sAMAccountName', 'userPrincipalName'])
+        never_logon = []
+        for e in self.conn.entries:
+            sam = str(e.sAMAccountName)
+            upn = ''
+            try:
+                upn = str(e.userPrincipalName) if e.userPrincipalName else ''
+            except Exception:
+                pass
+            never_logon.append((sam, upn if upn and upn != '[]' else ''))
         if never_logon:
-            for name in never_logon:
-                print_success(name)
+            for sam, upn in never_logon:
+                if upn:
+                    print_success(f"{sam}  ({upn})")
+                else:
+                    print_success(sam)
         else:
             print_info('  (none found)')
 
@@ -1143,11 +1190,11 @@ Examples:
         with open(out_path, 'w') as f:
             f.write(f"# adLDAP  |  {self.domain}  |  {self.run_ts}\n# {'─'*60}\n")
             f.write(f"Disabled Accounts ({len(disabled)})\n")
-            f.write('\n'.join(f'  {n}' for n in disabled) + '\n' if disabled else '  (none found)\n')
+            f.write('\n'.join(f'  {sam}  ({upn})' if upn else f'  {sam}' for sam, upn in disabled) + '\n' if disabled else '  (none found)\n')
             f.write(f"\nLocked-Out Accounts ({len(locked)})\n")
-            f.write('\n'.join(f'  {n}' for n in locked) + '\n' if locked else '  (none found)\n')
+            f.write('\n'.join(f'  {sam}  ({upn})' if upn else f'  {sam}' for sam, upn in locked) + '\n' if locked else '  (none found)\n')
             f.write(f"\nNever-Logged-On Accounts ({len(never_logon)})\n")
-            f.write('\n'.join(f'  {n}' for n in never_logon) + '\n' if never_logon else '  (none found)\n')
+            f.write('\n'.join(f'  {sam}  ({upn})' if upn else f'  {sam}' for sam, upn in never_logon) + '\n' if never_logon else '  (none found)\n')
 
     def search_groups(self):
         self.conn.search(f'{self.dom_1}', '(objectclass=group)',
@@ -1204,9 +1251,17 @@ Examples:
             admin_val = 0
             for member_dn in all_member_dns:
                 if member_dn not in admin_users:
-                    self.conn.search(member_dn, '(objectClass=user)', attributes=['sAMAccountName'])
+                    self.conn.search(member_dn, '(objectClass=user)', attributes=['sAMAccountName', 'userPrincipalName'])
                     for entry in self.conn.entries:
-                        print_success(entry.sAMAccountName)
+                        upn = ''
+                        try:
+                            upn = str(entry.userPrincipalName) if entry.userPrincipalName else ''
+                        except Exception:
+                            pass
+                        if upn and upn != '[]':
+                            print_success(f"{entry.sAMAccountName}  ({upn})")
+                        else:
+                            print_success(entry.sAMAccountName)
                     admin_users.append(member_dn)
                     admin_val += 1
                 if admin_val >= 25:
@@ -1229,7 +1284,15 @@ Examples:
         print_info('\n' + '-'*30 + 'Kerberoastable Users' + '-'*30 + '\n')
         entries_val = str(entries_val)
         for kerb_users in self.conn.entries:
-            print_success(kerb_users.sAMAccountName)
+            upn = ''
+            try:
+                upn = str(kerb_users.userPrincipalName) if kerb_users.userPrincipalName else ''
+            except Exception:
+                pass
+            if upn and upn != '[]':
+                print_success(f"{kerb_users.sAMAccountName}  ({upn})")
+            else:
+                print_success(kerb_users.sAMAccountName)
         if os.path.exists(os.path.join(self.dir_name, f'{self.domain}.kerberoast.txt')):
             os.remove(os.path.join(self.dir_name, f'{self.domain}.kerberoast.txt'))
         with open(os.path.join(self.dir_name, f'{self.domain}.kerberoast.txt'), 'w') as f:
@@ -1239,12 +1302,20 @@ Examples:
 
     def aspreproast_accounts(self):
         self.conn.search(f'{self.dom_1}', '(&(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=4194304)(!(UserAccountControl:1.2.840.113556.1.4.803:=2)))', attributes=[
-            'sAMAccountName'])
+            'sAMAccountName', 'userPrincipalName'])
         entries_val = self.conn.entries
         print_info('\n' + '-'*30 + 'ASREPRoastable Users' + '-'*30 + '\n')
         entries_val = str(entries_val)
         for asrep_users in self.conn.entries:
-            print_success(asrep_users.sAMAccountName)
+            upn = ''
+            try:
+                upn = str(asrep_users.userPrincipalName) if asrep_users.userPrincipalName else ''
+            except Exception:
+                pass
+            if upn and upn != '[]':
+                print_success(f"{asrep_users.sAMAccountName}  ({upn})")
+            else:
+                print_success(asrep_users.sAMAccountName)
         if os.path.exists(os.path.join(self.dir_name, f'{self.domain}.asreproast.txt')):
             os.remove(os.path.join(self.dir_name, f'{self.domain}.asreproast.txt'))
         with open(os.path.join(self.dir_name, f'{self.domain}.asreproast.txt'), 'w') as f:
@@ -1258,7 +1329,15 @@ Examples:
         entries = list(self.conn.entries)
         print_info('\n' + '-'*28 + 'Unconstrained Delegations' + '-'*27 + '\n')
         for i, entry in enumerate(entries):
-            print_success(entry.sAMAccountName)
+            upn = ''
+            try:
+                upn = str(entry.userPrincipalName) if entry.userPrincipalName else ''
+            except Exception:
+                pass
+            if upn and upn != '[]':
+                print_success(f"{entry.sAMAccountName}  ({upn})")
+            else:
+                print_success(entry.sAMAccountName)
             if i >= 24:
                 print_info(f'\n[info] Truncating results at 25. Check {self.domain}.unconstrained.txt for full details.')
                 break
@@ -1297,6 +1376,13 @@ Examples:
         print_info('\n' + '-'*36 + 'Computers' + '-'*35 + '\n')
         for comp_account in entries:
             print_success(f"{comp_account.name}")
+            try:
+                spns = comp_account.servicePrincipalName.values
+                if spns:
+                    for spn in spns:
+                        print(f"  {spn}")
+            except Exception:
+                pass
         out_path = os.path.join(self.dir_name, f'{self.domain}.computers.txt')
         with open(out_path, 'w') as f:
             f.write(f"# adLDAP  |  {self.domain}  |  {self.run_ts}\n# {'─'*60}\n")
@@ -1315,7 +1401,7 @@ Examples:
 
     def server_search(self):
         self.conn.search(f'{self.dom_1}', '(&(objectClass=computer)(!(objectclass=msDS-ManagedServiceAccount)))',
-                         attributes=['name', 'operatingsystem'])
+                         attributes=['name', 'operatingsystem', 'servicePrincipalName'])
         entries_val = self.conn.entries
         print_info('\n' + '-'*37 + 'Servers' + '-'*36 + '\n')
         entries_val = str(entries_val)
@@ -1323,6 +1409,13 @@ Examples:
             comp_account1 = str(comp_account).lower()
             if "server" in comp_account1:
                 print_success(f"{comp_account.name} - {comp_account.operatingsystem}")
+                try:
+                    spns = comp_account.servicePrincipalName.values
+                    if spns:
+                        for spn in spns:
+                            print(f"  {spn}")
+                except Exception:
+                    pass
         if os.path.exists(os.path.join(self.dir_name, f'{self.domain}.servers.txt')):
             os.remove(os.path.join(self.dir_name, f'{self.domain}.servers.txt'))
         with open(os.path.join(self.dir_name, f'{self.domain}.servers.txt'), 'w') as f:
@@ -1334,7 +1427,7 @@ Examples:
         DEPRECATED = ("windows 7", "windows 2003", "2003 r2", "windows 2008",
                       "windows 8", "windows xp", "windows vista")
         self.conn.search(f'{self.dom_1}', '(operatingSystem=*)',
-                         attributes=['name', 'operatingSystem', 'dNSHostName'])
+                         attributes=['name', 'operatingSystem', 'dNSHostName', 'servicePrincipalName'])
         print_info('\n' + '-'*26 + 'Deprecated Operating Systems' + '-'*26 + '\n')
         hits: list = []
         for entry in self.conn.entries:
@@ -1342,6 +1435,13 @@ Examples:
             if any(tag in os_str for tag in DEPRECATED):
                 line = f"{entry.name} - {entry.operatingSystem}"
                 print_success(line)
+                try:
+                    spns = entry.servicePrincipalName.values
+                    if spns:
+                        for spn in spns:
+                            print(f"  {spn}")
+                except Exception:
+                    pass
                 hits.append(line)
         out_path = os.path.join(self.dir_name, f'{self.domain}.deprecated_os.txt')
         ts_hdr = f"# adLDAP  |  {self.domain}  |  {self.run_ts}\n# {'─'*60}\n"
@@ -1363,6 +1463,13 @@ Examples:
                 print_success(dc_accounts.dNSHostName)
             except ldap3.core.exceptions.LDAPCursorAttributeError:
                 print_success(dc_accounts.name)
+            try:
+                spns = dc_accounts.servicePrincipalName.values
+                if spns:
+                    for spn in spns:
+                        print(f"  {spn}")
+            except Exception:
+                pass
         if os.path.exists(os.path.join(self.dir_name, f'{self.domain}.domaincontrollers.txt')):
             os.remove(os.path.join(self.dir_name, f'{self.domain}.domaincontrollers.txt'))
         with open(os.path.join(self.dir_name, f'{self.domain}.domaincontrollers.txt'), 'w') as f:
@@ -1404,6 +1511,13 @@ Examples:
             try:
                 hostname = str(entry.dNSHostName).replace('$', '')
                 print_success(hostname)
+                try:
+                    spns = entry.servicePrincipalName.values
+                    if spns:
+                        for spn in spns:
+                            print(f"  {spn}")
+                except Exception:
+                    pass
             except Exception:
                 pass
             if i >= 24:
@@ -1423,6 +1537,13 @@ Examples:
         for i, entry in enumerate(entries):
             name = str(entry.sAMAccountName).replace('$', '')
             print_success(name)
+            try:
+                spns = entry.servicePrincipalName.values
+                if spns:
+                    for spn in spns:
+                        print(f"  {spn}")
+            except Exception:
+                pass
             if i >= 24:
                 print_info(f'\n[info] Truncating results at 25. Check {self.domain}.exchangeservers.txt for full details.')
                 break
@@ -1455,7 +1576,15 @@ Examples:
               '\nThese are user accounts with adminCount=1 set\n')
         entries_val = str(entries_val)
         for admin_count_val in self.conn.entries:
-            print_success(admin_count_val.name)
+            upn = ''
+            try:
+                upn = str(admin_count_val.userPrincipalName) if admin_count_val.userPrincipalName else ''
+            except Exception:
+                pass
+            if upn and upn != '[]':
+                print_success(f"{admin_count_val.name}  ({upn})")
+            else:
+                print_success(admin_count_val.name)
         if os.path.exists(os.path.join(self.dir_name, f'{self.domain}.admincount.txt')):
             os.remove(os.path.join(self.dir_name, f'{self.domain}.admincount.txt'))
         with open(os.path.join(self.dir_name, f'{self.domain}.admincount.txt'), 'w') as f:
