@@ -1349,10 +1349,11 @@ Examples:
                          attributes=ldap3.ALL_ATTRIBUTES)
         entries = list(self.conn.entries)
         print_info('\n' + '-'*28 + 'Unconstrained Delegations' + '-'*27 + '\n')
-        out_lines = []
-        for i, entry in enumerate(entries):
+
+        # Build row data
+        rows = []
+        for entry in entries:
             sam = str(entry.sAMAccountName)
-            # Determine account type
             obj_classes = [str(c).lower() for c in (entry.objectClass.values if entry.objectClass else [])]
             if 'computer' in obj_classes:
                 acct_type = 'Computer'
@@ -1360,26 +1361,42 @@ Examples:
                 acct_type = 'gMSA'
             else:
                 acct_type = 'User'
-            print_success(f"{sam}")
-            print(f"  Account Type      : {acct_type}")
-            print(f"  DelegationRightsTo: Any Service (Unconstrained)")
-            out_lines.append(f"{sam}  |  Type: {acct_type}  |  DelegationRightsTo: Any Service (Unconstrained)")
+            delegation = 'Any Service (Unconstrained)'
             try:
-                spns = entry.servicePrincipalName.values
-                if spns:
-                    print(f"  SPNs              :")
-                    for spn in spns:
-                        print(f"    {spn}")
+                spns = [str(s) for s in entry.servicePrincipalName.values] if entry.servicePrincipalName else []
             except Exception:
-                pass
-            print()
-            if i >= 24:
-                print_info(f'[info] Truncating results at 25. Check {self.domain}.unconstrained.txt for full details.')
-                break
+                spns = []
+            rows.append((sam, acct_type, delegation, spns))
+
+        if rows:
+            # Calculate column widths
+            w_name = max(len('Name'), max(len(r[0]) for r in rows)) + 2
+            w_type = max(len('Type'), max(len(r[1]) for r in rows)) + 2
+            w_deleg = max(len('Delegation_Rights'), max(len(r[2]) for r in rows)) + 2
+            header = f"{'Name':<{w_name}}{'Type':<{w_type}}{'Delegation_Rights':<{w_deleg}}SPNs"
+            sep = f"{'-'*w_name}{'-'*w_type}{'-'*w_deleg}{'-'*30}"
+            print_info(header)
+            print_info(sep)
+            for i, (sam, acct_type, delegation, spns) in enumerate(rows):
+                first_spn = spns[0] if spns else ''
+                print_success(f"{sam:<{w_name}}{acct_type:<{w_type}}{delegation:<{w_deleg}}{first_spn}")
+                for spn in spns[1:]:
+                    print(f"{'':<{w_name}}{'':<{w_type}}{'':<{w_deleg}}{spn}")
+                if i >= 24:
+                    print_info(f'\n[info] Truncating results at 25. Check {self.domain}.unconstrained.txt for full details.')
+                    break
+        else:
+            print_info('  (none found)')
+
         out_path = os.path.join(self.dir_name, f'{self.domain}.unconstrained.txt')
         with open(out_path, 'w') as f:
             f.write(f"# adLDAP  |  {self.domain}  |  {self.run_ts}\n# {'─'*60}\n")
-            f.write('\n'.join(out_lines) + '\n' if out_lines else '(none found)\n')
+            if rows:
+                for sam, acct_type, delegation, spns in rows:
+                    spn_str = ', '.join(spns) if spns else '(none)'
+                    f.write(f"{sam}  |  Type: {acct_type}  |  DelegationRightsTo: {delegation}  |  SPNs: {spn_str}\n")
+            else:
+                f.write('(none found)\n')
 
 
     def constrainted_search(self):
@@ -1387,10 +1404,11 @@ Examples:
                          attributes=ldap3.ALL_ATTRIBUTES)
         entries = list(self.conn.entries)
         print_info('\n' + '-'*29 + 'Constrained Delegations' + '-'*28 + '\n')
-        out_lines = []
-        for i, entry in enumerate(entries):
+
+        # Build row data — one row per delegation target
+        rows = []
+        for entry in entries:
             sam = str(entry.sAMAccountName)
-            # Determine account type
             obj_classes = [str(c).lower() for c in (entry.objectClass.values if entry.objectClass else [])]
             if 'computer' in obj_classes:
                 acct_type = 'Computer'
@@ -1398,28 +1416,50 @@ Examples:
                 acct_type = 'gMSA'
             else:
                 acct_type = 'User'
-            targets = entry['msDS-AllowedToDelegateTo'].values if entry['msDS-AllowedToDelegateTo'] else []
-            print_success(f"{sam}")
-            print(f"  Account Type      : {acct_type}")
-            for tgt in targets:
-                print(f"  DelegationRightsTo: {tgt}")
-            out_lines.append(f"{sam}  |  Type: {acct_type}  |  DelegationRightsTo: {', '.join(str(t) for t in targets)}")
+            targets = [str(t) for t in (entry['msDS-AllowedToDelegateTo'].values if entry['msDS-AllowedToDelegateTo'] else [])]
             try:
-                spns = entry.servicePrincipalName.values
-                if spns:
-                    print(f"  SPNs              :")
-                    for spn in spns:
-                        print(f"    {spn}")
+                spns = [str(s) for s in entry.servicePrincipalName.values] if entry.servicePrincipalName else []
             except Exception:
-                pass
-            print()
-            if i >= 24:
-                print_info(f'[info] Truncating results at 25. Check {self.domain}.constrained.txt for full details.')
-                break
+                spns = []
+            rows.append((sam, acct_type, targets, spns))
+
+        if rows:
+            # Calculate column widths
+            all_targets = [t for r in rows for t in r[2]] or ['']
+            w_name = max(len('Name'), max(len(r[0]) for r in rows)) + 2
+            w_type = max(len('Type'), max(len(r[1]) for r in rows)) + 2
+            w_deleg = max(len('Delegation_Rights'), max(len(t) for t in all_targets)) + 2
+            header = f"{'Name':<{w_name}}{'Type':<{w_type}}{'Delegation_Rights':<{w_deleg}}SPNs"
+            sep = f"{'-'*w_name}{'-'*w_type}{'-'*w_deleg}{'-'*30}"
+            print_info(header)
+            print_info(sep)
+            for i, (sam, acct_type, targets, spns) in enumerate(rows):
+                # First line: name, type, first target, first SPN
+                first_tgt = targets[0] if targets else ''
+                first_spn = spns[0] if spns else ''
+                print_success(f"{sam:<{w_name}}{acct_type:<{w_type}}{first_tgt:<{w_deleg}}{first_spn}")
+                # Remaining targets and SPNs on subsequent lines
+                max_extra = max(len(targets) - 1, len(spns) - 1)
+                for j in range(1, max_extra + 1):
+                    extra_tgt = targets[j] if j < len(targets) else ''
+                    extra_spn = spns[j] if j < len(spns) else ''
+                    print(f"{'':<{w_name}}{'':<{w_type}}{extra_tgt:<{w_deleg}}{extra_spn}")
+                if i >= 24:
+                    print_info(f'\n[info] Truncating results at 25. Check {self.domain}.constrained.txt for full details.')
+                    break
+        else:
+            print_info('  (none found)')
+
         out_path = os.path.join(self.dir_name, f'{self.domain}.constrained.txt')
         with open(out_path, 'w') as f:
             f.write(f"# adLDAP  |  {self.domain}  |  {self.run_ts}\n# {'─'*60}\n")
-            f.write('\n'.join(out_lines) + '\n' if out_lines else '(none found)\n')
+            if rows:
+                for sam, acct_type, targets, spns in rows:
+                    tgt_str = ', '.join(targets) if targets else '(none)'
+                    spn_str = ', '.join(spns) if spns else '(none)'
+                    f.write(f"{sam}  |  Type: {acct_type}  |  DelegationRightsTo: {tgt_str}  |  SPNs: {spn_str}\n")
+            else:
+                f.write('(none found)\n')
 
 
     def computer_search(self):
