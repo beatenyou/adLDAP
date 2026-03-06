@@ -256,7 +256,7 @@ class LDAPSearch:
         print(r'  / __ `/ __  / /   / / / / / /| | / /_/ /')
         print(r' / /_/ / /_/ / /___/ /_/ / / ___ |/ ____/ ')
         print( ' \\__,_/\\__,_/_____/_____/ /_/  |_/_/      ')
-        print('        AD LDAP Enum v0.2 Release')
+        print('           AD LDAP Enum v0.3')
         print("              Beatenyou \n" + Style.RESET_ALL)
 
     def arg_handler(self):
