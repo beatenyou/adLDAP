@@ -1,7 +1,7 @@
-<p align="center">
-  <img src="https://github.com/beatenyou/adLDAP/tree/main/adLDAP.png" alt="adLDAP">
-</p>
 # adLDAP - Active Directory LDAP Enumerator
+<p align="center">
+  <img src="https://github.com/beatenyou/adLDAP/blob/main/adLDAP.png" alt="adLDAP">
+</p>
 
 adLDAP is an Active Directory LDAP enumeration tool implemented in Python3. It provides comprehensive domain reconnaissance, user and group enumeration, delegation analysis, DACL inspection, and a full suite of vulnerability and security checks including ADCS certificate template abuse (ESC1-ESC15).
 
